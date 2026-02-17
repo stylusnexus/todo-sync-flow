@@ -1,0 +1,49 @@
+name: 'Todo Sync Flow'
+description: 'Converts TODO/FIXME/HACK comments into GitHub issues with full lifecycle: create, track, close.'
+author: 'your-org'
+
+branding:
+  icon: 'check-square'
+  color: 'blue'
+
+inputs:
+  github_token:
+    description: 'GitHub token with issues:write and contents:write permissions'
+    required: true
+
+  extra_identifiers:
+    description: |
+      JSON array of additional identifiers to detect.
+      Each entry: { "name": "SRD-VIOLATION", "label": "compliance", "priority": "high" }
+      Priority is optional, defaults to "normal".
+    required: false
+    default: '[]'
+
+  insert_urls:
+    description: 'When true, commits the issue URL back into the TODO comment after creation'
+    required: false
+    default: 'true'
+
+  close_on_remove:
+    description: 'When true, closes the linked GitHub issue when a TODO line is deleted'
+    required: false
+    default: 'true'
+
+  assignees:
+    description: 'Comma-separated GitHub usernames to assign to created issues'
+    required: false
+    default: ''
+
+  extra_labels:
+    description: 'Comma-separated additional labels to apply to every created issue'
+    required: false
+    default: ''
+
+  milestone:
+    description: 'Milestone number (integer) to assign to created issues'
+    required: false
+    default: ''
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

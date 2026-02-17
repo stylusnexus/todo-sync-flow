@@ -1,0 +1,36 @@
+# Copy this file to .github/workflows/todo-sync.yml in each consuming repo
+name: Sync TODO comments to issues
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  sync-todos:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for URL insertion commits
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Required: action needs HEAD~1 to diff against
+
+      - uses: your-org/todo-sync-flow@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+# ── CritForge variant ─────────────────────────────────────────────────────────
+# Uncomment extra_identifiers to track SRD compliance and AI safety TODOs:
+#
+#       - uses: your-org/todo-sync-flow@v1
+#         with:
+#           github_token: ${{ secrets.GITHUB_TOKEN }}
+#           extra_identifiers: |
+#             [
+#               {"name": "SRD-VIOLATION", "label": "compliance",  "priority": "high"},
+#               {"name": "AI-SAFETY",     "label": "security",    "priority": "high"},
+#               {"name": "DEBT",          "label": "tech-debt",   "priority": "low"}
+#             ]
+#           extra_labels: 'auto-generated'

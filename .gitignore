@@ -1,0 +1,4 @@
+node_modules/
+# dist/ is intentionally committed — Actions runtime requires it
+*.js.map
+coverage/
