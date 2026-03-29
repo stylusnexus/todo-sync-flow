@@ -30129,10 +30129,13 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
 const actionsExec = __importStar(__nccwpck_require__(5236));
 const github = __importStar(__nccwpck_require__(3228));
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
 const identifiers_1 = __nccwpck_require__(5023);
 const parser_1 = __nccwpck_require__(7196);
 const github_1 = __nccwpck_require__(9248);
 const patcher_1 = __nccwpck_require__(1382);
+const state_1 = __nccwpck_require__(2462);
 async function getDiff() {
     let output = '';
     const options = {
@@ -30148,6 +30151,73 @@ async function getDiff() {
     }
     return output;
 }
+// ---------------------------------------------------------------------------
+// Full-scan mode: grep all source files for unlinked TODOs
+// ---------------------------------------------------------------------------
+const COMMENT_PREFIX_RE = /^\s*(?:\/\/|#|--|;|\*)\s*/;
+function scanAllFiles(identifiers, repoUrl) {
+    const identNames = identifiers.map(i => i.name).join('|');
+    const todoPattern = new RegExp(`(?:${COMMENT_PREFIX_RE.source})(${identNames})(\\([^)]*\\))?\\s*:?\\s*(.+)$`);
+    const results = [];
+    const scanDirs = ['src', 'tests', 'e2e', 'supabase', 'docs'];
+    function walkDir(dir) {
+        if (!fs.existsSync(dir))
+            return;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'dist')
+                    continue;
+                walkDir(fullPath);
+            }
+            else if (/\.(ts|tsx|js|jsx|py|sql|md)$/.test(entry.name)) {
+                scanFile(fullPath);
+            }
+        }
+    }
+    function scanFile(filePath) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            // Skip lines that already have an embedded issue URL
+            if ((0, state_1.hasEmbeddedUrl)('+' + line, repoUrl))
+                continue;
+            // Skip lines that reference an issue number like TODO(#123)
+            if (/TODO\(#\d+\)/.test(line))
+                continue;
+            const match = todoPattern.exec(line);
+            if (match) {
+                const [, identifierName, refPart, title] = match;
+                // Collect continuation lines
+                let body = '';
+                for (let j = i + 1; j < lines.length; j++) {
+                    const nextLine = lines[j].trimStart();
+                    if (!/^(?:\/\/|#|--|;|\*)/.test(nextLine))
+                        break;
+                    if (todoPattern.test(nextLine))
+                        break;
+                    const text = nextLine.replace(COMMENT_PREFIX_RE, '').trim();
+                    if (!text)
+                        break;
+                    body += (body ? '\n' : '') + text;
+                }
+                results.push({
+                    file: filePath,
+                    line: i + 1,
+                    identifier: identifierName,
+                    title: title.trim(),
+                    body,
+                    refs: {},
+                });
+            }
+        }
+    }
+    for (const dir of scanDirs) {
+        walkDir(dir);
+    }
+    return results;
+}
 async function commitAndPush(octokit, owner, repo) {
     const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
     await actionsExec.exec('git', ['config', 'user.name', 'github-actions[bot]']);
@@ -30161,6 +30231,7 @@ async function run() {
     const token = core.getInput('github_token', { required: true });
     const insertUrls = core.getBooleanInput('insert_urls');
     const closeOnRemove = core.getBooleanInput('close_on_remove');
+    const fullScan = core.getInput('full_scan') === 'true';
     const extraIdentifiersJson = core.getInput('extra_identifiers');
     const assigneesInput = core.getInput('assignees');
     const extraLabelsInput = core.getInput('extra_labels');
@@ -30177,11 +30248,24 @@ async function run() {
         : [];
     const milestone = milestoneInput ? parseInt(milestoneInput, 10) : undefined;
     core.info(`Identifiers: ${identifiers.map(i => i.name).join(', ')}`);
-    const diff = await getDiff();
-    if (!diff)
-        return;
-    const { added, removed } = (0, parser_1.parseDiff)(diff, identifiers, repoUrl);
-    core.info(`Found ${added.length} new TODO(s), ${removed.length} removed TODO(s)`);
+    core.info(`Mode: ${fullScan ? 'FULL SCAN' : 'diff-based'}`);
+    let added;
+    let removed = [];
+    if (fullScan) {
+        // Full scan: walk all source files for unlinked TODOs
+        added = scanAllFiles(identifiers, repoUrl);
+        core.info(`Full scan found ${added.length} unlinked TODO(s)`);
+    }
+    else {
+        // Diff-based: only process changes in the last commit
+        const diff = await getDiff();
+        if (!diff)
+            return;
+        const parsed = (0, parser_1.parseDiff)(diff, identifiers, repoUrl);
+        added = parsed.added;
+        removed = parsed.removed;
+        core.info(`Found ${added.length} new TODO(s), ${removed.length} removed TODO(s)`);
+    }
     // --- Create issues for new TODOs ---
     let urlsInserted = false;
     for (const todo of added) {
@@ -30208,8 +30292,8 @@ async function run() {
         core.info('Committing URL insertions...');
         await commitAndPush(octokit, owner, repo);
     }
-    // --- Close issues for removed TODOs ---
-    if (closeOnRemove) {
+    // --- Close issues for removed TODOs (diff mode only) ---
+    if (closeOnRemove && !fullScan) {
         for (const removedTodo of removed) {
             if (!removedTodo.issueNumber) {
                 core.debug(`No linked issue for removed ${removedTodo.identifier} in ${removedTodo.file}`);

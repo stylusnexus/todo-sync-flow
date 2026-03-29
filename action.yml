@@ -44,6 +44,11 @@ inputs:
     required: false
     default: ''
 
+  full_scan:
+    description: 'Scan all files instead of just the diff. Creates issues for every unlinked TODO.'
+    required: false
+    default: 'false'
+
 runs:
   using: 'node20'
   main: 'dist/index.js'
