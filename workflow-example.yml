@@ -9,8 +9,12 @@ jobs:
   sync-todos:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required for URL insertion commits
+      contents: write  # Turns on write-back: commits issue URLs into TODO lines on the pushed branch.
+                       # For read-only, use `contents: read` and set insert_urls: 'false'.
       issues: write
+    concurrency:
+      group: todo-sync-${{ github.ref }}
+      cancel-in-progress: false  # queue runs so two pushes never race
 
     steps:
       - uses: actions/checkout@v4

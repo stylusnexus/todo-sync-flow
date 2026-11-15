@@ -9,6 +9,16 @@ import { parseDiff, type AddedTodo } from './parser';
 import { createIssue, closeIssue } from './github';
 import { insertIssueUrl } from './patcher';
 import { hasEmbeddedUrl } from './state';
+import {
+  COMMIT_MESSAGE,
+  filesToStage,
+  preflightFailureMessage,
+  pushFailureMessage,
+  resolveWriteBackBranch,
+  summaryMarkdown,
+  unsupportedRefMessage,
+  type RunReport,
+} from './writeback';
 
 async function getDiff(): Promise<string> {
   let output = '';
@@ -102,15 +112,34 @@ function scanAllFiles(
   return results;
 }
 
-async function commitAndPush(octokit: ReturnType<typeof github.getOctokit>, owner: string, repo: string): Promise<void> {
-  const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
+async function gitCapture(args: string[]): Promise<{ rc: number; out: string }> {
+  let out = '';
+  const rc = await actionsExec.exec('git', args, {
+    ignoreReturnCode: true,
+    silent: true,
+    listeners: {
+      stdout: (d: Buffer) => { out += d.toString(); },
+      stderr: (d: Buffer) => { out += d.toString(); },
+    },
+  });
+  return { rc, out };
+}
 
+/** Dry-run push: proves the token can write to the branch before any issue is created. */
+async function preflightPush(branch: string): Promise<void> {
+  const { rc, out } = await gitCapture(['push', '--dry-run', 'origin', `HEAD:refs/heads/${branch}`]);
+  if (rc !== 0) throw new Error(preflightFailureMessage(branch, out));
+}
+
+/** Stages only the files this run patched and pushes them to the triggering branch. */
+async function commitAndPush(files: string[], branch: string): Promise<void> {
   await actionsExec.exec('git', ['config', 'user.name', 'github-actions[bot]']);
   await actionsExec.exec('git', ['config', 'user.email', 'github-actions[bot]@users.noreply.github.com']);
-  await actionsExec.exec('git', ['add', '-A']);
+  await actionsExec.exec('git', ['add', '--', ...files]);
   // [skip ci] prevents this commit triggering another workflow run
-  await actionsExec.exec('git', ['commit', '-m', 'chore: insert issue URLs into TODO comments [skip ci]']);
-  await actionsExec.exec('git', ['push', 'origin', `HEAD:${repoData.default_branch}`]);
+  await actionsExec.exec('git', ['commit', '-m', COMMIT_MESSAGE]);
+  const { rc, out } = await gitCapture(['push', 'origin', `HEAD:refs/heads/${branch}`]);
+  if (rc !== 0) throw new Error(pushFailureMessage(branch, out));
 }
 
 async function run(): Promise<void> {
@@ -156,49 +185,81 @@ async function run(): Promise<void> {
     core.info(`Found ${added.length} new TODO(s), ${removed.length} removed TODO(s)`);
   }
 
-  // --- Create issues for new TODOs ---
-  let urlsInserted = false;
+  const report: RunReport = {
+    writeBack: insertUrls,
+    branch: null,
+    mode: fullScan ? 'full-scan' : 'diff',
+    created: [],
+    closed: [],
+    filesChanged: [],
+  };
 
-  for (const todo of added) {
-    const identifier = identifierForName(todo.identifier, identifiers);
-    if (!identifier) continue;
-
-    core.info(`Creating issue: ${todo.identifier} in ${todo.file}:${todo.line}`);
-    const issue = await createIssue(octokit, {
-      todo,
-      identifier,
-      repoOwner: owner,
-      repoName: repo,
-      globalAssignees,
-      extraLabels,
-      milestone,
-    });
-    core.info(`Created #${issue.number}: ${issue.html_url}`);
-
-    if (insertUrls) {
-      insertIssueUrl(todo.file, todo.line, issue.html_url);
-      urlsInserted = true;
+  try {
+    // --- Write-back preflight: before any issue exists, prove we can push ---
+    let branch: string | null = null;
+    if (insertUrls && added.length > 0) {
+      branch = resolveWriteBackBranch(github.context.ref);
+      if (!branch) throw new Error(unsupportedRefMessage(github.context.ref));
+      report.branch = branch;
+      core.notice(
+        `Write-back is ON: this run will commit issue URLs into ${added.length} TODO comment(s) ` +
+        `on branch "${branch}" as github-actions[bot]. Set insert_urls: false to run read-only.`,
+      );
+      await preflightPush(branch);
+    } else if (!insertUrls) {
+      core.info('Write-back is OFF (insert_urls: false): no commits will be made. close_on_remove only works for TODOs that already carry an issue URL.');
     }
-  }
 
-  if (insertUrls && urlsInserted) {
-    core.info('Committing URL insertions...');
-    await commitAndPush(octokit, owner, repo);
-  }
+    // --- Create issues for new TODOs ---
+    const patched: string[] = [];
 
-  // --- Close issues for removed TODOs (diff mode only) ---
-  if (closeOnRemove && !fullScan) {
-    for (const removedTodo of removed) {
-      if (!removedTodo.issueNumber) {
-        core.debug(`No linked issue for removed ${removedTodo.identifier} in ${removedTodo.file}`);
-        continue;
+    for (const todo of added) {
+      const identifier = identifierForName(todo.identifier, identifiers);
+      if (!identifier) continue;
+
+      core.info(`Creating issue: ${todo.identifier} in ${todo.file}:${todo.line}`);
+      const issue = await createIssue(octokit, {
+        todo,
+        identifier,
+        repoOwner: owner,
+        repoName: repo,
+        globalAssignees,
+        extraLabels,
+        milestone,
+      });
+      core.info(`Created #${issue.number}: ${issue.html_url}`);
+      report.created.push({ number: issue.number, url: issue.html_url, file: todo.file, line: todo.line });
+
+      if (insertUrls) {
+        insertIssueUrl(todo.file, todo.line, issue.html_url);
+        patched.push(todo.file);
       }
-      core.info(`Closing #${removedTodo.issueNumber} (TODO removed from ${removedTodo.file})`);
-      await closeIssue(octokit, owner, repo, removedTodo.issueNumber, removedTodo.file);
     }
-  }
 
-  core.info('todo-sync-flow complete.');
+    const files = filesToStage(patched);
+    if (insertUrls && branch && files.length > 0) {
+      core.info(`Committing URL insertions to ${files.length} file(s) on ${branch}...`);
+      await commitAndPush(files, branch);
+      report.filesChanged = files;
+    }
+
+    // --- Close issues for removed TODOs (diff mode only) ---
+    if (closeOnRemove && !fullScan) {
+      for (const removedTodo of removed) {
+        if (!removedTodo.issueNumber) {
+          core.debug(`No linked issue for removed ${removedTodo.identifier} in ${removedTodo.file}`);
+          continue;
+        }
+        core.info(`Closing #${removedTodo.issueNumber} (TODO removed from ${removedTodo.file})`);
+        await closeIssue(octokit, owner, repo, removedTodo.issueNumber, removedTodo.file);
+        report.closed.push(removedTodo.issueNumber);
+      }
+    }
+
+    core.info('todo-sync-flow complete.');
+  } finally {
+    await core.summary.addRaw(summaryMarkdown(report)).write().catch(() => undefined);
+  }
 }
 
 run().catch(err => core.setFailed(err instanceof Error ? err.message : String(err)));

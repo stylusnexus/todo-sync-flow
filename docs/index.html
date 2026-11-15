@@ -363,8 +363,10 @@
   <span class="k">sync:</span>
     <span class="k">runs-on:</span> ubuntu-latest
     <span class="k">permissions:</span>
-      <span class="k">contents:</span> write  <span class="c"># Required for URL insertion commits</span>
+      <span class="k">contents:</span> write  <span class="c"># Turns on write-back: commits issue URLs into TODO lines</span>
       <span class="k">issues:</span> write
+    <span class="k">concurrency:</span>
+      <span class="k">group:</span> todo-sync-${{ github.ref }}  <span class="c"># queue runs so pushes never race</span>
     <span class="k">steps:</span>
       - <span class="k">uses:</span> actions/checkout@v4
         <span class="k">with:</span>
@@ -378,7 +380,7 @@
 
     <ol class="qs-notes" data-rise style="--d:100ms">
       <li><strong>Add the file</strong><p>Save it as <code>.github/workflows/todo-sync.yml</code> and push to <code>main</code>.</p></li>
-      <li><strong>Allow the action to write</strong><p>In the repository, open <span class="path">Settings → Actions → General → Workflow permissions</span> and choose <span class="path">Read and write permissions</span>. The action commits issue URLs back into your source.</p></li>
+      <li><strong>Decide on write-back</strong><p><code>contents: write</code> lets the action append each issue URL to its TODO line and commit that, to the pushed branch only, touching only those files. For read-only, use <code>contents: read</code> and set <code>insert_urls: 'false'</code>.</p></li>
       <li><strong>Keep <code>fetch-depth: 2</code></strong><p>The action diffs against the previous commit, so the checkout needs it.</p></li>
       <li><strong>Pick up existing TODOs</strong><p>On first install, set <code>full_scan: 'true'</code> to scan every file instead of the latest diff.</p></li>
     </ol>
@@ -399,7 +401,7 @@
         <tbody>
           <tr><td><code>github_token</code></td><td>required</td><td>A <code>GITHUB_TOKEN</code> or personal access token with <code>issues: write</code> and <code>contents: write</code>.</td></tr>
           <tr><td><code>extra_identifiers</code></td><td><code>'[]'</code></td><td>JSON array of extra identifiers to detect, each <code>{name, label, priority?}</code>. Priority defaults to <code>normal</code>.</td></tr>
-          <tr><td><code>insert_urls</code></td><td><code>'true'</code></td><td>Commit the issue URL back into the comment after the issue is created.</td></tr>
+          <tr><td><code>insert_urls</code></td><td><code>'true'</code></td><td>Write-back. Commit the issue URL into each new TODO line, on the triggering branch only. Needs <code>contents: write</code>. Set <code>'false'</code> for read-only.</td></tr>
           <tr><td><code>close_on_remove</code></td><td><code>'true'</code></td><td>Close the linked issue when its comment line is deleted.</td></tr>
           <tr><td><code>assignees</code></td><td><code>''</code></td><td>Comma-separated GitHub usernames to assign to created issues.</td></tr>
           <tr><td><code>extra_labels</code></td><td><code>''</code></td><td>Comma-separated labels added to every created issue.</td></tr>
@@ -480,9 +482,9 @@
         <p>The workflow that uses the action needs two scopes.</p>
         <ul class="perm" style="margin-top:1.25rem">
           <li><code>issues: write</code><span>To create and close issues.</span></li>
-          <li><code>contents: write</code><span>To commit issue URLs back into source.</span></li>
+          <li><code>contents: write</code><span>Write-back mode only. Use <code>contents: read</code> with <code>insert_urls: 'false'</code> for read-only.</span></li>
         </ul>
-        <p>Then enable <strong>Read and write permissions</strong> under <span class="path">Settings → Actions → General → Workflow permissions</span>.</p>
+        <p>Without <code>contents: write</code>, write-back mode stops before creating any issue and says how to fix it. Every run writes a job summary listing what it changed.</p>
       </div>
       <div data-rise style="--d:100ms">
         <h2 class="h2">Languages</h2>
