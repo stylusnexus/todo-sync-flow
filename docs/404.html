@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Page not found | todo-sync-flow</title>
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark light">
+<style>
+  :root {
+    --m: clamp(16px, 2.5vw, 32px);
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --forest: #0f1f10; --paper: #f3f6ee; --lime: #c6f19d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--forest); color: #fff; font: 400 1.125rem/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  h1, p { margin: 0; }
+  a { color: inherit; }
+  a:focus-visible { outline: 3px solid var(--lime); outline-offset: 3px; }
+  .hero { --H: max(560px, 100svh); --f: clamp(1.9rem, 8vw, 10rem); position: relative; height: var(--H); overflow: hidden; }
+  .up { position: absolute; inset: 0 0 50% 0; background: var(--paper); }
+  .bar { position: absolute; top: 0; left: 0; right: 0; z-index: 5; padding: 10px var(--m); color: var(--forest); }
+  .bar a { display: inline-block; font-weight: 800; font-size: 1.125rem; text-decoration: none; letter-spacing: -0.01em; padding: 0.7rem 0; }
+  .bar a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .bar a:focus-visible { outline-color: var(--forest); }
+  h1 { position: absolute; z-index: 2; left: var(--m); top: calc(var(--H) / 2 - 1.05 * var(--f)); font: 800 var(--f)/1.05 var(--font); letter-spacing: -0.035em; white-space: nowrap; }
+  h1 span { display: block; }
+  h1 span:first-child { color: var(--forest); }
+  h1 span:last-child { color: var(--lime); }
+  .copy { position: absolute; left: var(--m); right: var(--m); top: calc(50% + 1.05 * var(--f) + clamp(32px, 3vw, 48px)); }
+  .copy p { max-width: 34rem; font-size: 1.25rem; line-height: 1.5; }
+  .btn { display: inline-block; margin-top: 28px; padding: 1rem 1.6rem; min-height: 56px; background: var(--lime); color: var(--forest); font-weight: 700; text-decoration: none; }
+</style>
+</head>
+<body>
+<header class="bar"><a href="https://github.com/stylusnexus">Stylus Nexus</a></header>
+<main class="hero">
+  <div class="up"></div>
+  <h1><span>Page not found</span><span>Nothing to sync</span></h1>
+  <div class="copy">
+    <p>This page does not exist. The project page has the quick start, inputs and identifiers.</p>
+    <a class="btn" href="/todo-sync-flow/">Back to todo-sync-flow</a>
+  </div>
+</main>
+</body>
+</html>

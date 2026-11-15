@@ -1,6 +1,6 @@
 name: 'Todo Sync Flow'
 description: 'Converts TODO/FIXME/HACK comments into GitHub issues with full lifecycle: create, track, close.'
-author: 'your-org'
+author: 'Stylus Nexus'
 
 branding:
   icon: 'check-square'

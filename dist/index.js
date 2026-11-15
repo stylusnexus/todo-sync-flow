@@ -30003,7 +30003,7 @@ async function createIssue(octokit, params) {
     if (todo.refs.parent)
         bodyParts.push(`**Related issue:** #${todo.refs.parent}`);
     bodyParts.push('');
-    bodyParts.push('_This issue was automatically created by [todo-sync-flow](https://github.com/your-org/todo-sync-flow)._');
+    bodyParts.push('_This issue was automatically created by [todo-sync-flow](https://github.com/stylusnexus/todo-sync-flow)._');
     const { data } = await octokit.rest.issues.create({
         owner: repoOwner,
         repo: repoName,
@@ -30020,7 +30020,7 @@ async function closeIssue(octokit, owner, repo, issueNumber, filePath) {
         owner,
         repo,
         issue_number: issueNumber,
-        body: `Closing: the \`TODO\` comment in \`${filePath}\` was removed.\n\n_Automated by [todo-sync-flow](https://github.com/your-org/todo-sync-flow)._`,
+        body: `Closing: the \`TODO\` comment in \`${filePath}\` was removed.\n\n_Automated by [todo-sync-flow](https://github.com/stylusnexus/todo-sync-flow)._`,
     });
     await octokit.rest.issues.update({
         owner,
@@ -30334,7 +30334,7 @@ const syntax_json_1 = __importDefault(__nccwpck_require__(1973));
  * parens, optional colon, and the title text.
  *
  * TODO: implement this — see guidance below
- * https://github.com/your-org/todo-sync-flow/issues/1
+ * https://github.com/stylusnexus/todo-sync-flow/issues/1
  *
  * @param identifiers - list of identifiers to match (TODO, FIXME, etc.)
  * @returns RegExp with capture groups: (identifierName, refString|undefined, title)

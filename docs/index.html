@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>todo-sync-flow | Turn TODO comments into GitHub issues</title>
+<meta name="description" content="A GitHub Action that turns TODO, FIXME, HACK and BUG comments into GitHub issues, writes the issue link back into the comment, and closes the issue when the comment is removed.">
+<link rel="canonical" href="https://stylusnexus.github.io/todo-sync-flow/">
+<meta name="robots" content="index, follow, max-snippet:-1">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="todo-sync-flow">
+<meta property="og:title" content="todo-sync-flow | Turn TODO comments into GitHub issues">
+<meta property="og:description" content="A GitHub Action that turns TODO, FIXME, HACK and BUG comments into GitHub issues, writes the issue link back into the comment, and closes the issue when the comment is removed.">
+<meta property="og:url" content="https://stylusnexus.github.io/todo-sync-flow/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="todo-sync-flow | Turn TODO comments into GitHub issues">
+<meta name="twitter:description" content="A GitHub Action that turns TODO, FIXME, HACK and BUG comments into GitHub issues, writes the issue link back into the comment, and closes the issue when the comment is removed.">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "todo-sync-flow", "description": "A GitHub Action that turns TODO, FIXME, HACK and BUG comments into GitHub issues, writes the issue link back into the comment, and closes the issue when the comment is removed.", "url": "https://stylusnexus.github.io/todo-sync-flow/", "codeRepository": "https://github.com/stylusnexus/todo-sync-flow", "license": "https://opensource.org/licenses/MIT", "programmingLanguage": "TypeScript", "runtimePlatform": "GitHub Actions", "author": {"@type": "Organization", "name": "Stylus Nexus", "url": "https://github.com/stylusnexus"}}</script>
+<meta name="color-scheme" content="dark light">
+<script>document.documentElement.classList.add('js')</script>
+<style>
+  /* todo-sync-flow. A sibling of the Stylus Nexus course site: same tokens, same seam.
+     The seam here is the line between a comment and the issue it becomes. System fonts only. */
+  :root {
+    --m: clamp(16px, 2.5vw, 32px);
+    --gap: clamp(12px, 2vw, 28px);
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    /* fixed fields, the same in both themes */
+    --forest: #0f1f10; --paper: #f3f6ee; --lime: #c6f19d; --code-muted: #b3bdb3;
+    /* themed */
+    --bg: #0f1f10; --surface: #162a17; --ink: #ffffff; --muted: #b3bdb3;
+    --accent: #c6f19d; --accent-ink: #0f1f10; --focus: #c6f19d;
+    --n1: #1f4023; --n2: #2b5a32; --n3: #37753f;
+    --code-bg: #0a170b; --code-line: #2b5a32;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f3f6ee; --surface: #e3eadb; --ink: #0f1f10; --muted: #3f4f40;
+      --accent: #1d4d24; --accent-ink: #ffffff; --focus: #1d4d24;
+      --n1: #dde7d2; --n2: #c3d8b4; --n3: #a5c590;
+      --code-bg: #0f1f10; --code-line: #0f1f10;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 1.125rem/1.6 var(--font);
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  h1, h2, h3, p, ol, ul, figure, pre { margin: 0; }
+  a { color: inherit; }
+  a:focus-visible, .btn:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+  code { font-family: var(--mono); font-size: 0.9em; }
+  .skip {
+    position: absolute; left: var(--m); top: -80px; z-index: 100;
+    background: var(--lime); color: var(--forest); padding: 0.7rem 1.1rem; font-weight: 700;
+  }
+  .skip:focus { top: 10px; outline: 3px solid var(--forest); outline-offset: 2px; }
+
+  /* shared pieces */
+  .wrap { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap); }
+  section { padding: clamp(64px, 9vw, 130px) var(--m); scroll-margin-top: 0; }
+  .alt { background: var(--surface); }
+  .h2 {
+    font: 800 clamp(2rem, 1.2rem + 4vw, 4.5rem)/1 var(--font);
+    letter-spacing: -0.035em; text-wrap: balance;
+  }
+  .h3 { font: 800 clamp(1.5rem, 1.1rem + 1.4vw, 2.125rem)/1.1 var(--font); letter-spacing: -0.03em; text-wrap: balance; }
+  .head { grid-column: 1 / 8; }
+  .note { grid-column: 9 / 13; align-self: end; }
+  .muted { color: var(--muted); }
+  .btn {
+    display: inline-block; text-decoration: none; font-weight: 700; font-size: 1.125rem;
+    padding: 1rem 1.6rem; min-height: 56px; background: var(--accent); color: var(--accent-ink);
+    transition: transform .18s ease, background-color .18s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: translateY(1px); }
+
+  /* hero: two fields meet at half height; the seam runs between the two lines of the title */
+  .hero {
+    --H: max(640px, 100svh); --f: clamp(1.9rem, 8vw, 10rem);
+    position: relative; height: var(--H); background: var(--forest); overflow: hidden; padding: 0;
+  }
+  .hero .up { position: absolute; inset: 0 0 50% 0; background: var(--paper); }
+  .hero .down { position: absolute; inset: 50% 0 0 0; color: #fff; --focus: var(--lime); }
+  .hero-title {
+    position: absolute; z-index: 2; left: var(--m); top: calc(var(--H) / 2 - 1.05 * var(--f));
+    font: 800 var(--f)/1.05 var(--font); letter-spacing: -0.035em; white-space: nowrap;
+  }
+  .ln { display: block; overflow: hidden; padding: 0.08em 0 0.1em; margin: -0.08em 0 -0.1em; }
+  .ln:first-child { color: var(--forest); }
+  .ln:last-child { color: var(--lime); }
+  .ln > span { display: inline-block; animation: rise .95s cubic-bezier(.16,.8,.2,1) both; }
+  .ln:nth-child(2) > span { animation-delay: .11s; }
+  .hero-copy {
+    position: absolute; left: var(--m); right: var(--m);
+    top: calc(1.05 * var(--f) + clamp(32px, 3vw, 48px));
+    animation: fade .8s ease .55s both;
+  }
+  .hero-copy p { max-width: 38rem; font-size: 1.375rem; line-height: 1.5; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hero-copy .btn { background: var(--lime); color: var(--forest); }
+  .hero-copy .btn.ghost { background: transparent; color: var(--lime); box-shadow: inset 0 0 0 2px var(--lime); }
+  .hero-copy small { display: block; margin-top: 14px; font-size: 0.9375rem; color: #c9d3c9; }
+  @keyframes rise { from { transform: translateY(105%); } to { transform: none; } }
+  @keyframes fade { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  .bar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 5; color: var(--forest);
+    display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px var(--m);
+  }
+  .bar .mark { font-weight: 800; font-size: 1.125rem; text-decoration: none; letter-spacing: -0.01em; padding: 0.7rem 0; white-space: nowrap; }
+  .bar ul { list-style: none; padding: 0; display: flex; gap: clamp(0.75rem, 2.5vw, 2rem); }
+  .bar ul a { display: block; padding: 0.7rem 0.15rem; font-weight: 600; font-size: 0.9375rem; text-decoration: none; white-space: nowrap; }
+  .bar a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .bar a:focus-visible { outline-color: var(--forest); }
+
+  /* how it works: four steps on one rule */
+  .steps {
+    grid-column: 1 / -1; list-style: none; padding: 0; margin-top: clamp(40px, 6vw, 88px);
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 40px var(--gap);
+  }
+  .step { position: relative; padding-top: 28px; border-top: 3px solid var(--accent); }
+  .step::before {
+    content: ""; position: absolute; top: -9px; left: 0; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--accent);
+  }
+  .step:not(:last-child)::after {
+    /* arrowhead at the end of each segment, pointing at the next step */
+    content: ""; position: absolute; top: -9px; right: calc(-1 * var(--gap) + 2px);
+    border: 7.5px solid transparent; border-left: 11px solid var(--accent); border-right: 0;
+  }
+  .step .n { display: block; font: 300 clamp(2.5rem, 1.6rem + 2.5vw, 4rem)/1 var(--font); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .step h3 { margin-top: 14px; font: 800 1.375rem/1.2 var(--font); letter-spacing: -0.02em; }
+  .step p { margin-top: 8px; font-size: 1.0625rem; line-height: 1.5; }
+  .chip {
+    margin-top: 18px; padding: 12px 14px; background: var(--code-bg); color: var(--paper);
+    font: 400 0.875rem/1.5 var(--mono); overflow-wrap: anywhere; border-left: 3px solid var(--lime);
+  }
+  .chip .c { color: var(--code-muted); }
+  .chip .u { color: var(--lime); }
+  .chip del { text-decoration-thickness: 2px; color: var(--code-muted); }
+  .chip .tag { display: inline-block; margin-top: 6px; font: 700 0.8125rem/1 var(--font); letter-spacing: 0.02em; color: var(--lime); }
+  .state-line { grid-column: 1 / -1; margin-top: clamp(40px, 5vw, 72px); font: 700 clamp(1.25rem, 1rem + 1vw, 1.75rem)/1.3 var(--font); letter-spacing: -0.02em; text-wrap: balance; }
+  .state-line span { color: var(--accent); }
+
+  /* code blocks */
+  .code {
+    background: var(--code-bg); color: var(--paper); box-shadow: inset 0 0 0 1px var(--code-line);
+    min-width: 0; --focus: var(--lime);
+  }
+  .code-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 6px 6px 6px 18px; border-bottom: 1px solid var(--n2);
+    font: 400 0.875rem/1.4 var(--mono); color: var(--code-muted);
+  }
+  .code-head span { overflow-wrap: anywhere; }
+  .code pre {
+    padding: 18px; overflow-x: auto; font: 400 0.9375rem/1.6 var(--mono); tab-size: 2;
+  }
+  .code pre:focus-visible { outline-offset: -3px; }
+  .code .c { color: var(--code-muted); }
+  .code .k { color: #e7eedf; }
+  .code .u { color: var(--lime); font-weight: 700; }
+  .copy {
+    display: none; font: 700 0.9375rem/1 var(--font); color: var(--forest); background: var(--lime);
+    border: 0; padding: 0 16px; min-height: 44px; min-width: 88px; cursor: pointer;
+    transition: transform .18s ease;
+  }
+  .js .copy { display: inline-block; }
+  .copy:active { transform: translateY(1px); }
+  .copy-status { min-height: 1.5em; margin-top: 10px; font-size: 0.9375rem; color: var(--muted); }
+
+  /* quick start */
+  .qs-code { grid-column: 1 / 8; margin-top: clamp(40px, 6vw, 88px); }
+  .qs-notes { grid-column: 9 / 13; margin-top: clamp(40px, 6vw, 88px); list-style: none; padding: 0; counter-reset: q; }
+  .qs-notes li { counter-increment: q; position: relative; padding-left: 2.25rem; }
+  .qs-notes li + li { margin-top: 24px; }
+  .qs-notes li::before { content: counter(q); position: absolute; left: 0; top: 0; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .qs-notes strong { display: block; }
+  .qs-notes p { font-size: 1.0625rem; line-height: 1.5; margin-top: 4px; }
+  .path { font-weight: 700; }
+
+  /* tables */
+  .table-scroll { grid-column: 1 / -1; margin-top: clamp(40px, 6vw, 88px); overflow-x: auto; }
+  .table-scroll:focus-visible { outline-offset: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 1.0625rem; line-height: 1.5; }
+  caption { text-align: left; }
+  th, td { text-align: left; vertical-align: top; padding: 14px 24px 14px 0; border-bottom: 1px solid var(--n2); }
+  th:last-child, td:last-child { padding-right: 0; }
+  thead th { font-size: 0.9375rem; font-weight: 700; color: var(--muted); border-bottom: 3px solid var(--accent); padding-top: 0; }
+  td code { white-space: nowrap; }
+  .inputs table { min-width: 640px; }
+  .inputs td:first-child code { font-weight: 700; }
+
+  /* identifiers */
+  .ids-a { grid-column: 1 / 7; margin-top: clamp(40px, 6vw, 88px); min-width: 0; }
+  .ids-b { grid-column: 8 / 13; margin-top: clamp(40px, 6vw, 88px); min-width: 0; }
+  .ids-c { grid-column: 1 / -1; margin-top: clamp(56px, 7vw, 104px); display: grid; grid-template-rows: auto 1fr auto; align-items: start; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap); }
+  .ids-c .h3 { grid-column: 1 / 6; }
+  .ids-c > p { grid-column: 1 / 6; margin-top: 1rem; }
+  .ids-c .code { grid-column: 7 / 13; grid-row: 1 / span 2; }
+  .ids-c .copy-status { grid-column: 7 / 13; }
+  .ids-a .h3, .ids-b .h3 { margin-bottom: 1rem; }
+  .ids-a p, .ids-b > p { margin-bottom: 1.5rem; }
+  .ids-a table { min-width: 300px; }
+  .refs { list-style: none; padding: 0; margin-top: 20px; }
+  .refs li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--n2); font-size: 1.0625rem; }
+  .refs code { font-weight: 700; }
+
+  /* paper field */
+  .paper {
+    --bg: var(--paper); --ink: var(--forest); --muted: #3f4f40; --accent: #1d4d24;
+    --accent-ink: #fff; --focus: #1d4d24; --n2: #c3d8b4;
+    background: var(--paper); color: var(--forest);
+  }
+  .two { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(48px, 6vw, 88px) var(--gap); }
+  .two .h2 { margin-bottom: clamp(24px, 3vw, 40px); }
+  .two p + p, .two p + ul, .two ul + p { margin-top: 1.25rem; }
+  .perm { list-style: none; padding: 0; }
+  .perm li { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--n2); }
+  .perm code { font-weight: 700; }
+  .big { font: 300 clamp(4rem, 2rem + 8vw, 9rem)/0.9 var(--font); letter-spacing: -0.04em; font-variant-numeric: tabular-nums; display: block; margin-bottom: 12px; }
+
+  footer { background: var(--forest); color: #fff; padding: clamp(64px, 8vw, 110px) var(--m) 36px; --focus: var(--lime); overflow: hidden; }
+  footer .places { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 36px; }
+  footer .places a { display: block; padding: 0.5rem 0; font-size: clamp(1.25rem, 1rem + 1vw, 2.125rem); font-weight: 700; color: var(--lime); text-decoration: none; letter-spacing: -0.02em; }
+  footer .places a:hover { text-decoration: underline; text-underline-offset: 6px; }
+  footer .name { font: 800 clamp(3rem, 12.5vw, 15rem)/1 var(--font); letter-spacing: -0.05em; margin-top: clamp(40px, 6vw, 90px); white-space: nowrap; }
+  footer .legal { margin-top: 28px; font-size: 0.9375rem; color: #b3bdb3; }
+
+  /* motion: only transform and opacity, and only when script is running */
+  .js [data-rise] { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s cubic-bezier(.16,.8,.2,1); transition-delay: var(--d, 0ms); }
+  .js [data-rise].in { opacity: 1; transform: none; }
+
+  @media (max-width: 1100px) {
+    .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 56px; }
+    .step:nth-child(2)::after { display: none; }
+  }
+  @media (max-width: 860px) {
+    .head, .note, .qs-code, .qs-notes, .ids-a, .ids-b, .ids-c .h3, .ids-c > p, .ids-c .code, .ids-c .copy-status { grid-column: 1 / -1; }
+    .note { margin-top: 1.25rem; }
+    .ids-c { grid-template-rows: none; }
+    .ids-c .code { grid-row: auto; margin-top: 24px; }
+    .two { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .steps { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+    .step { border-top: 0; border-left: 3px solid var(--accent); padding: 0 0 40px 24px; }
+    .step:last-child { padding-bottom: 0; }
+    .step::before { top: 0; left: -9px; }
+    .step:not(:last-child)::after, .step:nth-child(2)::after {
+      display: block; top: auto; bottom: -2px; right: auto; left: -9px;
+      border: 7.5px solid transparent; border-top: 11px solid var(--accent); border-bottom: 0;
+    }
+    .hero-copy p { font-size: 1.25rem; }
+    .hero-copy .btn { flex: 1 1 auto; text-align: center; }
+    .perm li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  }
+  @media (max-width: 520px) {
+    .bar ul li.opt { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .ln > span, .hero-copy { animation: none; }
+    .js [data-rise] { opacity: 1; transform: none; transition: none; }
+    .btn, .copy { transition: none; }
+    .btn:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <a class="mark" href="https://github.com/stylusnexus">Stylus Nexus</a>
+  <nav aria-label="Primary">
+    <ul>
+      <li class="opt"><a href="#how">How it works</a></li>
+      <li><a href="#quick-start">Quick start</a></li>
+      <li><a href="#inputs">Inputs</a></li>
+      <li><a href="https://github.com/stylusnexus/todo-sync-flow">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-label="Introduction">
+  <div class="up"></div>
+  <h1 class="hero-title"><span class="ln"><span>Every TODO</span></span><span class="ln"><span>becomes an issue</span></span></h1>
+  <div class="down">
+    <div class="hero-copy">
+      <p>todo-sync-flow is a GitHub Action that turns TODO, FIXME, HACK and BUG comments into GitHub issues, writes each issue link back into its comment, and closes the issue when the comment is removed.</p>
+      <div class="actions">
+        <a class="btn" href="https://github.com/stylusnexus/todo-sync-flow">View on GitHub</a>
+        <a class="btn ghost" href="#quick-start">Quick start</a>
+      </div>
+      <small>GitHub Action · MIT · 63 languages</small>
+    </div>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="head" data-rise>
+      <h2 class="h2" id="how-h">From comment to closed issue</h2>
+    </div>
+    <p class="note" data-rise style="--d:100ms">The action runs on push and reads the diff. Each new comment goes through the same four steps.</p>
+    <ol class="steps">
+      <li class="step" data-rise>
+        <span class="n" aria-hidden="true">01</span>
+        <h3>A comment is pushed</h3>
+        <p>A new <code>TODO</code>, <code>FIXME</code>, <code>HACK</code> or <code>BUG</code> comment lands in a push.</p>
+        <div class="chip" aria-hidden="true"><span class="c">// TODO: Add rate limiting</span></div>
+      </li>
+      <li class="step" data-rise style="--d:70ms">
+        <span class="n" aria-hidden="true">02</span>
+        <h3>An issue is created</h3>
+        <p>The issue title carries the full file path and line number, so you can find the comment from the issue list.</p>
+        <div class="chip" aria-hidden="true"><span class="u">#42</span> opened<br><span class="tag">path + line in the title</span></div>
+      </li>
+      <li class="step" data-rise style="--d:140ms">
+        <span class="n" aria-hidden="true">03</span>
+        <h3>The URL goes back into the comment</h3>
+        <p>The action commits the issue URL into the comment, linking code and issue in both directions.</p>
+        <div class="chip" aria-hidden="true"><span class="c">// TODO: Add rate limiting</span> <span class="u">https://github.com/org/repo/issues/42</span></div>
+      </li>
+      <li class="step" data-rise style="--d:210ms">
+        <span class="n" aria-hidden="true">04</span>
+        <h3>The issue closes when the comment goes</h3>
+        <p>Delete the line and the action reads the issue number from its URL and closes the issue.</p>
+        <div class="chip" aria-hidden="true"><del>// TODO: Add rate limiting</del><br><span class="tag">#42 closed</span></div>
+      </li>
+    </ol>
+    <p class="state-line" data-rise>No database. <span>The URL in the comment is the state.</span></p>
+  </div>
+</section>
+
+<section id="quick-start" class="alt" aria-labelledby="qs-h">
+  <div class="wrap">
+    <div class="head" data-rise>
+      <h2 class="h2" id="qs-h">Quick start</h2>
+    </div>
+    <p class="note" data-rise style="--d:100ms">One workflow file in the repository you want to track. No server and nothing to host.</p>
+
+    <div class="qs-code" data-rise>
+      <div class="code">
+        <div class="code-head">
+          <span id="qs-file">.github/workflows/todo-sync.yml</span>
+          <button class="copy" type="button" data-copy="qs-yaml" aria-describedby="qs-file">Copy</button>
+        </div>
+<pre id="qs-yaml" tabindex="0" aria-label="Workflow file, todo-sync.yml"><code><span class="k">name:</span> Sync TODOs to issues
+
+<span class="k">on:</span>
+  <span class="k">push:</span>
+    <span class="k">branches:</span> [main]
+
+<span class="k">jobs:</span>
+  <span class="k">sync:</span>
+    <span class="k">runs-on:</span> ubuntu-latest
+    <span class="k">permissions:</span>
+      <span class="k">contents:</span> write  <span class="c"># Required for URL insertion commits</span>
+      <span class="k">issues:</span> write
+    <span class="k">steps:</span>
+      - <span class="k">uses:</span> actions/checkout@v4
+        <span class="k">with:</span>
+          <span class="k">fetch-depth:</span> 2  <span class="c"># Required: action needs HEAD~1 to diff against</span>
+      - <span class="k">uses:</span> <span class="u">stylusnexus/todo-sync-flow@v1</span>
+        <span class="k">with:</span>
+          <span class="k">github_token:</span> ${{ secrets.GITHUB_TOKEN }}</code></pre>
+      </div>
+      <p class="copy-status" role="status" aria-live="polite" data-status-for="qs-yaml"></p>
+    </div>
+
+    <ol class="qs-notes" data-rise style="--d:100ms">
+      <li><strong>Add the file</strong><p>Save it as <code>.github/workflows/todo-sync.yml</code> and push to <code>main</code>.</p></li>
+      <li><strong>Allow the action to write</strong><p>In the repository, open <span class="path">Settings → Actions → General → Workflow permissions</span> and choose <span class="path">Read and write permissions</span>. The action commits issue URLs back into your source.</p></li>
+      <li><strong>Keep <code>fetch-depth: 2</code></strong><p>The action diffs against the previous commit, so the checkout needs it.</p></li>
+      <li><strong>Pick up existing TODOs</strong><p>On first install, set <code>full_scan: 'true'</code> to scan every file instead of the latest diff.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="inputs" class="inputs" aria-labelledby="inputs-h">
+  <div class="wrap">
+    <div class="head" data-rise>
+      <h2 class="h2" id="inputs-h">Inputs</h2>
+    </div>
+    <p class="note" data-rise style="--d:100ms">Set these under <code>with:</code>. Only <code>github_token</code> is required.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="inputs-h" data-rise>
+      <table>
+        <thead>
+          <tr><th scope="col">Input</th><th scope="col">Default</th><th scope="col">What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>github_token</code></td><td>required</td><td>A <code>GITHUB_TOKEN</code> or personal access token with <code>issues: write</code> and <code>contents: write</code>.</td></tr>
+          <tr><td><code>extra_identifiers</code></td><td><code>'[]'</code></td><td>JSON array of extra identifiers to detect, each <code>{name, label, priority?}</code>. Priority defaults to <code>normal</code>.</td></tr>
+          <tr><td><code>insert_urls</code></td><td><code>'true'</code></td><td>Commit the issue URL back into the comment after the issue is created.</td></tr>
+          <tr><td><code>close_on_remove</code></td><td><code>'true'</code></td><td>Close the linked issue when its comment line is deleted.</td></tr>
+          <tr><td><code>assignees</code></td><td><code>''</code></td><td>Comma-separated GitHub usernames to assign to created issues.</td></tr>
+          <tr><td><code>extra_labels</code></td><td><code>''</code></td><td>Comma-separated labels added to every created issue.</td></tr>
+          <tr><td><code>milestone</code></td><td><code>''</code></td><td>Milestone number to assign to created issues.</td></tr>
+          <tr><td><code>full_scan</code></td><td><code>'false'</code></td><td>Scan every file, not just the latest diff, and create issues for every unlinked TODO. Useful on first install.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="identifiers" class="alt" aria-labelledby="ids-h">
+  <div class="wrap">
+    <div class="head" data-rise>
+      <h2 class="h2" id="ids-h">Identifiers</h2>
+    </div>
+    <p class="note" data-rise style="--d:100ms">Four come built in. Each one sets the issue label and priority. Add your own with <code>extra_identifiers</code>.</p>
+
+    <div class="ids-a" data-rise>
+      <h3 class="h3" id="builtin-h">Built in</h3>
+      <div class="table-scroll" style="margin-top:0" tabindex="0" role="region" aria-labelledby="builtin-h">
+        <table>
+          <thead><tr><th scope="col">Identifier</th><th scope="col">Label</th><th scope="col">Priority</th></tr></thead>
+          <tbody>
+            <tr><td><code>TODO</code></td><td><code>todo</code></td><td>normal</td></tr>
+            <tr><td><code>FIXME</code></td><td><code>bug</code></td><td>high</td></tr>
+            <tr><td><code>HACK</code></td><td><code>tech-debt</code></td><td>low</td></tr>
+            <tr><td><code>BUG</code></td><td><code>bug</code></td><td>high</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ids-b" data-rise style="--d:100ms">
+      <h3 class="h3">References</h3>
+      <p>Put references in parentheses after any identifier.</p>
+      <div class="code">
+<pre tabindex="0" aria-label="Reference syntax examples"><code><span class="k">// TODO(@alice):</span> Assign to alice
+<span class="k">// FIXME(!performance):</span> Add extra 'performance' label
+<span class="k">// HACK(#42):</span> Related to issue #42
+<span class="k">// TODO(@alice,!perf,#42):</span> All three combined</code></pre>
+      </div>
+      <ul class="refs">
+        <li><code>@user</code><span>Assigns the issue to that user.</span></li>
+        <li><code>!label</code><span>Adds that label to the issue.</span></li>
+        <li><code>#issue</code><span>Marks it as related to that issue.</span></li>
+        <li><code>a,b,c</code><span>Combine them with commas.</span></li>
+      </ul>
+    </div>
+
+    <div class="ids-c" data-rise>
+      <h3 class="h3">Custom identifiers</h3>
+      <p>Pass a JSON array. Each entry needs a <code>name</code> and a <code>label</code>; <code>priority</code> is optional and defaults to <code>normal</code>.</p>
+      <div class="code">
+        <div class="code-head">
+          <span id="custom-file">Custom identifiers step</span>
+          <button class="copy" type="button" data-copy="custom-yaml" aria-describedby="custom-file">Copy</button>
+        </div>
+<pre id="custom-yaml" tabindex="0" aria-label="Custom identifiers example"><code>- <span class="k">uses:</span> <span class="u">stylusnexus/todo-sync-flow@v1</span>
+  <span class="k">with:</span>
+    <span class="k">github_token:</span> ${{ secrets.GITHUB_TOKEN }}
+    <span class="k">extra_identifiers:</span> |
+      [
+        {"name": "SRD-VIOLATION", "label": "compliance", "priority": "high"},
+        {"name": "AI-SAFETY",     "label": "security",   "priority": "high"}
+      ]</code></pre>
+      </div>
+      <p class="copy-status" role="status" aria-live="polite" data-status-for="custom-yaml"></p>
+    </div>
+  </div>
+</section>
+
+<section id="permissions" class="paper" aria-label="Permissions and languages">
+  <div class="wrap">
+    <div class="two">
+      <div data-rise>
+        <h2 class="h2">Permissions</h2>
+        <p>The workflow that uses the action needs two scopes.</p>
+        <ul class="perm" style="margin-top:1.25rem">
+          <li><code>issues: write</code><span>To create and close issues.</span></li>
+          <li><code>contents: write</code><span>To commit issue URLs back into source.</span></li>
+        </ul>
+        <p>Then enable <strong>Read and write permissions</strong> under <span class="path">Settings → Actions → General → Workflow permissions</span>.</p>
+      </div>
+      <div data-rise style="--d:100ms">
+        <h2 class="h2">Languages</h2>
+        <p><span class="big">63</span>languages are covered by the comment syntax in <a href="https://github.com/stylusnexus/todo-sync-flow/blob/main/syntax.json"><code>syntax.json</code></a>. The action is written in TypeScript and runs on Node 20.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <nav aria-label="Project">
+    <ul class="places">
+      <li><a href="https://github.com/stylusnexus/todo-sync-flow">Source on GitHub</a></li>
+      <li><a href="#quick-start">Quick start</a></li>
+      <li><a href="#inputs">Inputs</a></li>
+      <li><a href="https://stylusnexus.github.io/">Stylus Nexus</a></li>
+    </ul>
+  </nav>
+  <p class="name" aria-hidden="true">Stylus Nexus</p>
+  <p class="legal">Published by Stylus Nexus. todo-sync-flow is released under the <a href="https://github.com/stylusnexus/todo-sync-flow/blob/main/LICENSE">MIT License</a>, © 2026 Stylus Nexus Holdings LLC.</p>
+</footer>
+
+<script>
+(function () {
+  var d = document.documentElement;
+
+  // copy buttons: clipboard API first, then select the text so the reader can copy it by hand
+  function selectText(el) {
+    var r = document.createRange(); r.selectNodeContents(el);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    var id = btn.getAttribute('data-copy');
+    var pre = document.getElementById(id);
+    var status = document.querySelector('[data-status-for="' + id + '"]');
+    var timer;
+    function say(msg, label) {
+      if (status) status.textContent = msg;
+      btn.textContent = label;
+      clearTimeout(timer);
+      timer = setTimeout(function () { btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2500);
+    }
+    function fallback() {
+      selectText(pre);
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      if (ok) say('Copied to clipboard.', 'Copied');
+      else say('Text selected. Press Ctrl+C or Command+C to copy.', 'Selected');
+    }
+    btn.addEventListener('click', function () {
+      var text = pre.textContent;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { say('Copied to clipboard.', 'Copied'); }, fallback);
+      } else { fallback(); }
+    });
+  });
+
+  var rise = document.querySelectorAll('[data-rise]');
+  if (!('IntersectionObserver' in window)) { rise.forEach(function (el) { el.classList.add('in'); }); return; }
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { rootMargin: '0px 0px -6% 0px' });
+  rise.forEach(function (el) { io.observe(el); });
+})();
+</script>
+</body>
+</html>

@@ -35,7 +35,7 @@ export interface RemovedTodo {
  * parens, optional colon, and the title text.
  *
  * TODO: implement this — see guidance below
- * https://github.com/your-org/todo-sync-flow/issues/1
+ * https://github.com/stylusnexus/todo-sync-flow/issues/1
  *
  * @param identifiers - list of identifiers to match (TODO, FIXME, etc.)
  * @returns RegExp with capture groups: (identifierName, refString|undefined, title)

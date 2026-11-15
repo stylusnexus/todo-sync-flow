@@ -19,5 +19,11 @@
     "@vercel/ncc": "^0.38.3",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stylusnexus/todo-sync-flow.git"
+  },
+  "homepage": "https://stylusnexus.github.io/todo-sync-flow/"
 }
