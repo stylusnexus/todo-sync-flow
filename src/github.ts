@@ -65,7 +65,7 @@ export async function createIssue(
   bodyParts.push(`**Identifier:** \`${todo.identifier}\``);
   if (todo.refs.parent) bodyParts.push(`**Related issue:** #${todo.refs.parent}`);
   bodyParts.push('');
-  bodyParts.push('_This issue was automatically created by [todo-sync-flow](https://github.com/your-org/todo-sync-flow)._');
+  bodyParts.push('_This issue was automatically created by [todo-sync-flow](https://github.com/stylusnexus/todo-sync-flow)._');
 
   const { data } = await octokit.rest.issues.create({
     owner: repoOwner,
@@ -91,7 +91,7 @@ export async function closeIssue(
     owner,
     repo,
     issue_number: issueNumber,
-    body: `Closing: the \`TODO\` comment in \`${filePath}\` was removed.\n\n_Automated by [todo-sync-flow](https://github.com/your-org/todo-sync-flow)._`,
+    body: `Closing: the \`TODO\` comment in \`${filePath}\` was removed.\n\n_Automated by [todo-sync-flow](https://github.com/stylusnexus/todo-sync-flow)._`,
   });
 
   await octokit.rest.issues.update({

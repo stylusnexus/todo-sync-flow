@@ -1,5 +1,10 @@
 # todo-sync-flow
 
+[![Version](https://img.shields.io/github/v/tag/stylusnexus/todo-sync-flow?label=version&color=0f1f10)](https://github.com/stylusnexus/todo-sync-flow/tags)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0f1f10)](LICENSE)
+[![Languages](https://img.shields.io/badge/languages-63-0f1f10)](syntax.json)
+[![Guide](https://img.shields.io/badge/guide-stylusnexus.github.io-c6f19d?labelColor=0f1f10)](https://stylusnexus.github.io/todo-sync-flow/)
+
 A GitHub Action that converts TODO-style comments into GitHub issues with full lifecycle management.
 
 ## What it does
@@ -29,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - uses: your-org/todo-sync-flow@v1
+      - uses: stylusnexus/todo-sync-flow@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -45,6 +50,7 @@ jobs:
 | `assignees` | `''` | Comma-separated GitHub usernames |
 | `extra_labels` | `''` | Additional labels for every created issue |
 | `milestone` | `''` | Milestone number |
+| `full_scan` | `'false'` | Scan every file, not just the latest diff; creates issues for every unlinked TODO. Useful on first install |
 
 ## Built-in identifiers
 
@@ -69,7 +75,7 @@ Inside any identifier you can embed refs:
 ## Custom identifiers
 
 ```yaml
-- uses: your-org/todo-sync-flow@v1
+- uses: stylusnexus/todo-sync-flow@v1
   with:
     github_token: ${{ secrets.GITHUB_TOKEN }}
     extra_identifiers: |
@@ -106,3 +112,11 @@ The consuming workflow needs:
 
 > **Important:** Enable "Read and write permissions" for Actions in your repo settings:
 > Settings → Actions → General → Workflow permissions
+
+## Languages
+
+Comment syntax for 63 languages lives in [`syntax.json`](syntax.json). Add a language by adding an entry there.
+
+## License
+
+[MIT](LICENSE) © 2026 Stylus Nexus
