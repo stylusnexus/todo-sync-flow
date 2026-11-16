@@ -30136,6 +30136,7 @@ const parser_1 = __nccwpck_require__(7196);
 const github_1 = __nccwpck_require__(9248);
 const patcher_1 = __nccwpck_require__(1382);
 const state_1 = __nccwpck_require__(2462);
+const writeback_1 = __nccwpck_require__(8867);
 async function getDiff() {
     let output = '';
     const options = {
@@ -30218,17 +30219,38 @@ function scanAllFiles(identifiers, repoUrl) {
     }
     return results;
 }
-async function commitAndPush(octokit, owner, repo) {
-    const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
+async function gitCapture(args) {
+    let out = '';
+    const rc = await actionsExec.exec('git', args, {
+        ignoreReturnCode: true,
+        silent: true,
+        listeners: {
+            stdout: (d) => { out += d.toString(); },
+            stderr: (d) => { out += d.toString(); },
+        },
+    });
+    return { rc, out };
+}
+/** Dry-run push: proves the token can write to the branch before any issue is created. */
+async function preflightPush(branch) {
+    const { rc, out } = await gitCapture(['push', '--dry-run', 'origin', `HEAD:refs/heads/${branch}`]);
+    if (rc !== 0)
+        throw new Error((0, writeback_1.preflightFailureMessage)(branch, out));
+}
+/** Stages only the files this run patched and pushes them to the triggering branch. */
+async function commitAndPush(files, branch) {
     await actionsExec.exec('git', ['config', 'user.name', 'github-actions[bot]']);
     await actionsExec.exec('git', ['config', 'user.email', 'github-actions[bot]@users.noreply.github.com']);
-    await actionsExec.exec('git', ['add', '-A']);
+    await actionsExec.exec('git', ['add', '--', ...files]);
     // [skip ci] prevents this commit triggering another workflow run
-    await actionsExec.exec('git', ['commit', '-m', 'chore: insert issue URLs into TODO comments [skip ci]']);
-    await actionsExec.exec('git', ['push', 'origin', `HEAD:${repoData.default_branch}`]);
+    await actionsExec.exec('git', ['commit', '-m', writeback_1.COMMIT_MESSAGE]);
+    const { rc, out } = await gitCapture(['push', 'origin', `HEAD:refs/heads/${branch}`]);
+    if (rc !== 0)
+        throw new Error((0, writeback_1.pushFailureMessage)(branch, out));
 }
 async function run() {
     const token = core.getInput('github_token', { required: true });
+    core.setSecret(token); // mask a PAT in logs; GITHUB_TOKEN is already masked by the runner
     const insertUrls = core.getBooleanInput('insert_urls');
     const closeOnRemove = core.getBooleanInput('close_on_remove');
     const fullScan = core.getInput('full_scan') === 'true';
@@ -30266,44 +30288,80 @@ async function run() {
         removed = parsed.removed;
         core.info(`Found ${added.length} new TODO(s), ${removed.length} removed TODO(s)`);
     }
-    // --- Create issues for new TODOs ---
-    let urlsInserted = false;
-    for (const todo of added) {
-        const identifier = (0, identifiers_1.identifierForName)(todo.identifier, identifiers);
-        if (!identifier)
-            continue;
-        core.info(`Creating issue: ${todo.identifier} in ${todo.file}:${todo.line}`);
-        const issue = await (0, github_1.createIssue)(octokit, {
-            todo,
-            identifier,
-            repoOwner: owner,
-            repoName: repo,
-            globalAssignees,
-            extraLabels,
-            milestone,
-        });
-        core.info(`Created #${issue.number}: ${issue.html_url}`);
-        if (insertUrls) {
-            (0, patcher_1.insertIssueUrl)(todo.file, todo.line, issue.html_url);
-            urlsInserted = true;
+    const report = {
+        writeBack: insertUrls,
+        branch: null,
+        mode: fullScan ? 'full-scan' : 'diff',
+        created: [],
+        closed: [],
+        filesChanged: [],
+    };
+    try {
+        // --- Write-back preflight: before any issue exists, prove we can push ---
+        let branch = null;
+        if (insertUrls && added.length > 0) {
+            branch = (0, writeback_1.resolveWriteBackBranch)(github.context.ref);
+            if (!branch)
+                throw new Error((0, writeback_1.unsupportedRefMessage)(github.context.ref));
+            report.branch = branch;
+            core.notice(`Write-back is ON: this run will commit issue URLs into ${added.length} TODO comment(s) ` +
+                `on branch "${branch}" as github-actions[bot]. Set insert_urls: false to run read-only.`);
+            await preflightPush(branch);
         }
-    }
-    if (insertUrls && urlsInserted) {
-        core.info('Committing URL insertions...');
-        await commitAndPush(octokit, owner, repo);
-    }
-    // --- Close issues for removed TODOs (diff mode only) ---
-    if (closeOnRemove && !fullScan) {
-        for (const removedTodo of removed) {
-            if (!removedTodo.issueNumber) {
-                core.debug(`No linked issue for removed ${removedTodo.identifier} in ${removedTodo.file}`);
+        else if (!insertUrls) {
+            core.info('Write-back is OFF (insert_urls: false): no commits will be made. close_on_remove only works for TODOs that already carry an issue URL.');
+        }
+        // --- Create issues for new TODOs ---
+        const patched = [];
+        for (const todo of added) {
+            const identifier = (0, identifiers_1.identifierForName)(todo.identifier, identifiers);
+            if (!identifier)
                 continue;
+            core.info(`Creating issue: ${todo.identifier} in ${todo.file}:${todo.line}`);
+            const issue = await (0, github_1.createIssue)(octokit, {
+                todo,
+                identifier,
+                repoOwner: owner,
+                repoName: repo,
+                globalAssignees,
+                extraLabels,
+                milestone,
+            });
+            core.info(`Created #${issue.number}: ${issue.html_url}`);
+            report.created.push({ number: issue.number, url: issue.html_url, file: todo.file, line: todo.line });
+            if (insertUrls) {
+                (0, patcher_1.insertIssueUrl)(todo.file, todo.line, issue.html_url);
+                patched.push(todo.file);
             }
-            core.info(`Closing #${removedTodo.issueNumber} (TODO removed from ${removedTodo.file})`);
-            await (0, github_1.closeIssue)(octokit, owner, repo, removedTodo.issueNumber, removedTodo.file);
         }
+        const files = (0, writeback_1.filesToStage)(patched);
+        if (insertUrls && branch && files.length > 0) {
+            core.info(`Committing URL insertions to ${files.length} file(s) on ${branch}...`);
+            await commitAndPush(files, branch);
+            report.filesChanged = files;
+        }
+        // --- Close issues for removed TODOs (diff mode only) ---
+        if (closeOnRemove && !fullScan) {
+            for (const removedTodo of removed) {
+                if (!removedTodo.issueNumber) {
+                    core.debug(`No linked issue for removed ${removedTodo.identifier} in ${removedTodo.file}`);
+                    continue;
+                }
+                core.info(`Closing #${removedTodo.issueNumber} (TODO removed from ${removedTodo.file})`);
+                await (0, github_1.closeIssue)(octokit, owner, repo, removedTodo.issueNumber, removedTodo.file);
+                report.closed.push(removedTodo.issueNumber);
+            }
+        }
+        core.info('todo-sync-flow complete.');
     }
-    core.info('todo-sync-flow complete.');
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        report.failure = msg.split('. ')[0];
+        throw err;
+    }
+    finally {
+        await core.summary.addRaw((0, writeback_1.summaryMarkdown)(report)).write().catch(() => undefined);
+    }
 }
 run().catch(err => core.setFailed(err instanceof Error ? err.message : String(err)));
 
@@ -30617,6 +30675,99 @@ function extractIssueNumber(line, repoUrl) {
 /** Returns true if a line already has an issue URL embedded (skip re-creating) */
 function hasEmbeddedUrl(line, repoUrl) {
     return line.includes(`${repoUrl}/issues/`);
+}
+
+
+/***/ }),
+
+/***/ 8867:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Write-back mode helpers.
+ *
+ * When insert_urls is true the action commits one change per new TODO (the
+ * issue URL appended to that comment line) back to the branch that triggered
+ * the run. These helpers keep that behaviour narrow and explainable:
+ *   - only the branch that triggered the run, never the default branch
+ *   - only the files the action patched, never `git add -A`
+ *   - a preflight check before any issue is created
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.COMMIT_MESSAGE = exports.WRITE_BACK_DOCS = void 0;
+exports.resolveWriteBackBranch = resolveWriteBackBranch;
+exports.unsupportedRefMessage = unsupportedRefMessage;
+exports.preflightFailureMessage = preflightFailureMessage;
+exports.pushFailureMessage = pushFailureMessage;
+exports.filesToStage = filesToStage;
+exports.summaryMarkdown = summaryMarkdown;
+exports.WRITE_BACK_DOCS = 'https://github.com/stylusnexus/todo-sync-flow#what-this-action-does-to-your-repo';
+exports.COMMIT_MESSAGE = 'chore(todo-sync-flow): insert issue URLs into TODO comments [skip ci]';
+/** Branch name for a push ref (refs/heads/x), or null for tags, PR merge refs and anything else. */
+function resolveWriteBackBranch(ref) {
+    const prefix = 'refs/heads/';
+    if (!ref || !ref.startsWith(prefix))
+        return null;
+    const branch = ref.slice(prefix.length);
+    return branch.length > 0 ? branch : null;
+}
+function unsupportedRefMessage(ref) {
+    return [
+        `Write-back is on (insert_urls: true) but this run was triggered by "${ref ?? 'unknown ref'}", which is not a branch.`,
+        'todo-sync-flow only commits to the branch that triggered the run, so it cannot write back here.',
+        `Run it on push events, or set insert_urls: false. See ${exports.WRITE_BACK_DOCS}`,
+    ].join(' ');
+}
+function preflightFailureMessage(branch, detail) {
+    const trimmed = detail.trim().split('\n').slice(-3).join(' | ');
+    return [
+        `Write-back is on (insert_urls: true) but a dry-run push to "${branch}" failed, so no issues were created.`,
+        'Usual causes: the job is missing "permissions: contents: write", or actions/checkout ran with persist-credentials: false.',
+        `Fix the permission, or set insert_urls: false to run read-only. See ${exports.WRITE_BACK_DOCS}`,
+        trimmed ? `Git said: ${trimmed}` : '',
+    ].filter(Boolean).join(' ');
+}
+function pushFailureMessage(branch, detail) {
+    const trimmed = detail.trim().split('\n').slice(-3).join(' | ');
+    return [
+        `Issues were created, but pushing the URL commit to "${branch}" failed.`,
+        'Usual causes: branch protection on that branch, or another run pushed first (add a concurrency group).',
+        `The created issues are listed in the job summary. See ${exports.WRITE_BACK_DOCS}`,
+        trimmed ? `Git said: ${trimmed}` : '',
+    ].filter(Boolean).join(' ');
+}
+/** De-duplicated, order-preserving list of files to stage. */
+function filesToStage(files) {
+    return [...new Set(files.filter(f => f.trim().length > 0))];
+}
+/** Markdown for the job summary: always states the mode and exactly what was changed. */
+function summaryMarkdown(r) {
+    const lines = ['## todo-sync-flow', ''];
+    lines.push(`| Setting | Value |`, `|---|---|`);
+    lines.push(`| Result | ${r.failure ? `**failed**: ${r.failure}` : 'completed'} |`);
+    lines.push(`| Scan mode | ${r.mode} |`);
+    lines.push(`| Write-back | ${r.writeBack ? `**on**, commits to \`${r.branch}\`` : 'off (read-only)'} |`);
+    lines.push(`| Issues created | ${r.created.length} |`);
+    lines.push(`| Issues closed | ${r.closed.length} |`);
+    lines.push(`| Files committed | ${r.filesChanged.length} |`);
+    if (r.created.length) {
+        lines.push('', '### Created');
+        for (const c of r.created)
+            lines.push(`- #${c.number} from \`${c.file}:${c.line}\``);
+    }
+    if (r.closed.length) {
+        lines.push('', '### Closed');
+        for (const n of r.closed)
+            lines.push(`- #${n}`);
+    }
+    if (r.filesChanged.length) {
+        lines.push('', '### Files committed');
+        for (const f of r.filesChanged)
+            lines.push(`- \`${f}\``);
+    }
+    return lines.join('\n') + '\n';
 }
 
 

@@ -8,7 +8,7 @@ branding:
 
 inputs:
   github_token:
-    description: 'GitHub token with issues:write and contents:write permissions'
+    description: 'GitHub token. Needs issues:write; also contents:write when insert_urls is true'
     required: true
 
   extra_identifiers:
@@ -20,7 +20,7 @@ inputs:
     default: '[]'
 
   insert_urls:
-    description: 'When true, commits the issue URL back into the TODO comment after creation'
+    description: 'Write-back. When true, commits the issue URL into each new TODO line, on the branch that triggered the run only, staging only those files. Needs contents:write. Set false for read-only'
     required: false
     default: 'true'
 
@@ -50,5 +50,5 @@ inputs:
     default: 'false'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
