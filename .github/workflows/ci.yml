@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only token for every job. Nothing in CI writes to the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false # no shared cache, so no cache poisoning
+
+      - name: Install from lockfile, no install scripts
+        run: npm ci --ignore-scripts
+
+      - name: Verify registry signatures and provenance
+        run: npm audit signatures
+
+      - name: Known vulnerabilities (all dependencies)
+        run: npm audit --audit-level=moderate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: dist/ matches source
+        # Users run dist/index.js, not src/. A stale or hand-edited bundle fails here.
+        run: |
+          npm run build
+          if ! git diff --quiet -- dist; then
+            git diff --stat -- dist
+            echo "::error::dist/ does not match src/. Run 'npm run build' and commit dist/."
+            exit 1
+          fi
+
+  pinned-actions:
+    name: Actions pinned to commit SHAs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Every third-party action uses a full commit SHA
+        run: |
+          bad=$(grep -RnE '^\s*(-\s*)?uses:' .github/workflows \
+                | grep -vE 'uses:\s*\./' \
+                | grep -vE '@[0-9a-f]{40}(\s|$)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Actions must be pinned to a full 40-character commit SHA:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All actions pinned."
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
