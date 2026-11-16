@@ -144,6 +144,7 @@ async function commitAndPush(files: string[], branch: string): Promise<void> {
 
 async function run(): Promise<void> {
   const token = core.getInput('github_token', { required: true });
+  core.setSecret(token); // mask a PAT in logs; GITHUB_TOKEN is already masked by the runner
   const insertUrls = core.getBooleanInput('insert_urls');
   const closeOnRemove = core.getBooleanInput('close_on_remove');
   const fullScan = core.getInput('full_scan') === 'true';
