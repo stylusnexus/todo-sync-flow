@@ -58,7 +58,7 @@ jobs:
       group: todo-sync-${{ github.ref }}
       cancel-in-progress: false   # queue runs so two pushes never race
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2   # the action diffs against HEAD~1
       - uses: stylusnexus/todo-sync-flow@v1
@@ -75,7 +75,7 @@ No commits to your repo. Issues are still created and closed (closing works only
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - uses: stylusnexus/todo-sync-flow@v1

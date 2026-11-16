@@ -62,12 +62,15 @@ export interface RunReport {
   created: { number: number; url: string; file: string; line: number }[];
   closed: number[];
   filesChanged: string[];
+  /** Set when the run stopped early; first sentence of the error. */
+  failure?: string;
 }
 
 /** Markdown for the job summary: always states the mode and exactly what was changed. */
 export function summaryMarkdown(r: RunReport): string {
   const lines: string[] = ['## todo-sync-flow', ''];
   lines.push(`| Setting | Value |`, `|---|---|`);
+  lines.push(`| Result | ${r.failure ? `**failed**: ${r.failure}` : 'completed'} |`);
   lines.push(`| Scan mode | ${r.mode} |`);
   lines.push(`| Write-back | ${r.writeBack ? `**on**, commits to \`${r.branch}\`` : 'off (read-only)'} |`);
   lines.push(`| Issues created | ${r.created.length} |`);

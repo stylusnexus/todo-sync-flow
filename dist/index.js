@@ -30353,6 +30353,11 @@ async function run() {
         }
         core.info('todo-sync-flow complete.');
     }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        report.failure = msg.split('. ')[0];
+        throw err;
+    }
     finally {
         await core.summary.addRaw((0, writeback_1.summaryMarkdown)(report)).write().catch(() => undefined);
     }
@@ -30740,6 +30745,7 @@ function filesToStage(files) {
 function summaryMarkdown(r) {
     const lines = ['## todo-sync-flow', ''];
     lines.push(`| Setting | Value |`, `|---|---|`);
+    lines.push(`| Result | ${r.failure ? `**failed**: ${r.failure}` : 'completed'} |`);
     lines.push(`| Scan mode | ${r.mode} |`);
     lines.push(`| Write-back | ${r.writeBack ? `**on**, commits to \`${r.branch}\`` : 'off (read-only)'} |`);
     lines.push(`| Issues created | ${r.created.length} |`);

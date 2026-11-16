@@ -368,7 +368,7 @@
     <span class="k">concurrency:</span>
       <span class="k">group:</span> todo-sync-${{ github.ref }}  <span class="c"># queue runs so pushes never race</span>
     <span class="k">steps:</span>
-      - <span class="k">uses:</span> actions/checkout@v4
+      - <span class="k">uses:</span> actions/checkout@v5
         <span class="k">with:</span>
           <span class="k">fetch-depth:</span> 2  <span class="c"># Required: action needs HEAD~1 to diff against</span>
       - <span class="k">uses:</span> <span class="u">stylusnexus/todo-sync-flow@v1</span>
@@ -488,7 +488,7 @@
       </div>
       <div data-rise style="--d:100ms">
         <h2 class="h2">Languages</h2>
-        <p><span class="big">63</span>languages are covered by the comment syntax in <a href="https://github.com/stylusnexus/todo-sync-flow/blob/main/syntax.json"><code>syntax.json</code></a>. The action is written in TypeScript and runs on Node 20.</p>
+        <p><span class="big">63</span>languages are covered by the comment syntax in <a href="https://github.com/stylusnexus/todo-sync-flow/blob/main/syntax.json"><code>syntax.json</code></a>. The action is written in TypeScript and runs on Node 24.</p>
       </div>
     </div>
   </div>

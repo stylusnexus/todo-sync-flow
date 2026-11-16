@@ -257,6 +257,10 @@ async function run(): Promise<void> {
     }
 
     core.info('todo-sync-flow complete.');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    report.failure = msg.split('. ')[0];
+    throw err;
   } finally {
     await core.summary.addRaw(summaryMarkdown(report)).write().catch(() => undefined);
   }

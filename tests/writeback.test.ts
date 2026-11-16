@@ -57,9 +57,15 @@ describe('failure messages', () => {
 });
 
 describe('summaryMarkdown', () => {
+  it('shows a failed result when the run stopped early', () => {
+    const md = summaryMarkdown({ writeBack: true, branch: 'main', mode: 'diff', created: [], closed: [], filesChanged: [], failure: 'dry-run push failed' });
+    expect(md).toContain('| Result | **failed**: dry-run push failed |');
+  });
+
   it('states read-only mode plainly', () => {
     const md = summaryMarkdown({ writeBack: false, branch: null, mode: 'diff', created: [], closed: [], filesChanged: [] });
     expect(md).toContain('off (read-only)');
+    expect(md).toContain('| Result | completed |');
     expect(md).toContain('| Files committed | 0 |');
   });
 
